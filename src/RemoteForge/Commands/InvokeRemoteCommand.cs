@@ -23,20 +23,16 @@ namespace RemoteForge.Commands;
     DefaultParameterSetName = "ScriptBlock"
 )]
 [OutputType(typeof(object))]
-public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
-{
-    private class DefaultVariableValue
-    {
+public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable {
+    private class DefaultVariableValue {
         private static DefaultVariableValue? _instance;
 
-        private DefaultVariableValue()
-        { }
+        private DefaultVariableValue() { }
 
         public static DefaultVariableValue Value => _instance ??= new();
     }
 
-    private enum PipelineType
-    {
+    private enum PipelineType {
         Output,
         Error,
         Information,
@@ -47,11 +43,12 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
     private readonly BlockingCollection<(PipelineType, object?)> _outputPipe = new();
     private Task? _worker;
     private MethodInfo? _errorRecordSetTargetObject;
+    private List<StringForgeConnectionInfoPSSession> Hosts = new();
 
     private event EventHandler? OnStopEvent;
 
     [Parameter(
-        Mandatory = true,
+        Mandatory = false,
         Position = 0
     )]
     [Alias("ComputerName", "Cn")]
@@ -86,114 +83,11 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
     [Parameter]
     public int ThrottleLimit { get; set; } = 32;
 
-    protected override void BeginProcessing()
-    {
-        string commandToRun;
-        if (ScriptBlock != null)
-        {
-            commandToRun = ScriptBlock;
-        }
-        else
-        {
-            string resolvedPath = SessionState.Path.GetUnresolvedProviderPathFromPSPath(
-                FilePath,
-                out ProviderInfo provider,
-                out PSDriveInfo _);
+    protected override void BeginProcessing() {
 
-            if (provider.ImplementingType != typeof(FileSystemProvider))
-            {
-                ErrorRecord err = new(
-                    new ArgumentException($"The resolved path '{resolvedPath}' is not a FileSystem path but {provider.Name}"),
-                    "FilePathNotFileSystem",
-                    ErrorCategory.InvalidArgument,
-                    FilePath);
-                ThrowTerminatingError(err);
-            }
-            else if (!File.Exists(resolvedPath))
-            {
-                ErrorRecord err = new(
-                    new FileNotFoundException($"Cannot find path '{resolvedPath}' because it does not exist", resolvedPath),
-                    "FilePathNotFound",
-                    ErrorCategory.ObjectNotFound,
-                    FilePath);
-                ThrowTerminatingError(err);
-            }
-
-            commandToRun = File.ReadAllText(resolvedPath);
-        }
-
-        PSObject?[] arguments = Array.Empty<PSObject?>();
-        OrderedDictionary? parameters = null;
-
-        if (ArgumentList != null)
-        {
-            if (ArgumentList.Arguments != null)
-            {
-                arguments = ArgumentList.Arguments;
-            }
-            else if (ArgumentList.Parameters != null)
-            {
-                parameters = new();
-                foreach (DictionaryEntry kvp in ArgumentList.Parameters)
-                {
-                    PSObject? value = null;
-                    if (kvp.Value is PSObject psObject)
-                    {
-                        value = psObject;
-                    }
-                    else if (kvp.Value != null)
-                    {
-                        value = PSObject.AsPSObject(kvp.Value);
-                    }
-
-                    parameters.Add(kvp.Key, value);
-                }
-            }
-        }
-
-        Hashtable usingParameters = GetUsingParameters(commandToRun);
-        if (usingParameters.Count > 0)
-        {
-            parameters ??= new();
-            parameters["--%"] = usingParameters;
-        }
-
-        Queue<(Runspace?, RunspaceConnectionInfo, string)> connectionQueue = new(ConnectionInfo.Length);
-        foreach (StringForgeConnectionInfoPSSession conn in ConnectionInfo)
-        {
-            RunspaceConnectionInfo? connInfo = conn.GetConnectionInfo(this);
-            if (connInfo == null)
-            {
-                continue;
-            }
-            connectionQueue.Enqueue((conn.PSSession?.Runspace, connInfo, conn.ToString()));
-        }
-
-        if (connectionQueue.Count == 0)
-        {
-            _outputPipe.CompleteAdding();
-            return;
-        }
-
-        _worker = Task.Run(async () =>
-        {
-            try
-            {
-                await RunWorker(
-                    connectionQueue,
-                    commandToRun,
-                    arguments: arguments,
-                    parameters: parameters);
-            }
-            finally
-            {
-                _outputPipe.CompleteAdding();
-            }
-        });
     }
 
-    private Hashtable GetUsingParameters(string script)
-    {
+    private Hashtable GetUsingParameters(string script) {
         Hashtable usingParams = new();
 
         // ParseInput will not fail on errors, to allow providing anything as
@@ -201,8 +95,7 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
         // if the script is valid PowerShell.
         ScriptBlockAst sbkAst = Parser.ParseInput(script, out var _1, out var _2);
 
-        foreach (var usingStatement in sbkAst.FindAll((a) => a is UsingExpressionAst, true))
-        {
+        foreach (var usingStatement in sbkAst.FindAll((a) => a is UsingExpressionAst, true)) {
             UsingExpressionAst usingAst = (UsingExpressionAst)usingStatement;
             VariableExpressionAst backingVariableAst = UsingExpressionAst.ExtractUsingVariable(usingAst);
             string varPath = backingVariableAst.VariablePath.UserPath;
@@ -211,17 +104,14 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
             // The index variant is not in case the index itself is a string
             // as that could be case sensitive.
             string varText = usingAst.ToString();
-            if (usingAst.SubExpression is VariableExpressionAst)
-            {
+            if (usingAst.SubExpression is VariableExpressionAst) {
                 varText = varText.ToLowerInvariant();
             }
             string key = Convert.ToBase64String(Encoding.Unicode.GetBytes(varText));
 
-            if (!usingParams.ContainsKey(key))
-            {
+            if (!usingParams.ContainsKey(key)) {
                 object? value = SessionState.PSVariable.GetValue(varPath, DefaultVariableValue.Value);
-                if (value is DefaultVariableValue)
-                {
+                if (value is DefaultVariableValue) {
                     string msg = $"The value of the using variable '{usingStatement}' cannot be retrieved because it has not been set in the local session.";
                     ErrorRecord err = new(
                         new ArgumentException(msg),
@@ -231,12 +121,10 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
                     ThrowTerminatingError(err);
                 }
 
-                try
-                {
+                try {
                     value = ExtractUsingExpressionValue(value, usingAst.SubExpression);
                 }
-                catch (Exception e)
-                {
+                catch (Exception e) {
                     WriteWarning($"Failed to extract $using value: {e.Message}");
                     continue;
                 }
@@ -248,10 +136,8 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
         return usingParams;
     }
 
-    private object? ExtractUsingExpressionValue(object? value, ExpressionAst ast)
-    {
-        if (ast is not MemberExpressionAst && ast is not IndexExpressionAst)
-        {
+    private object? ExtractUsingExpressionValue(object? value, ExpressionAst ast) {
+        if (ast is not MemberExpressionAst && ast is not IndexExpressionAst) {
             // No need to extract the inner value for simple $using:var entries.
             return value;
         }
@@ -264,10 +150,8 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
         // with the new constant value/the newly wrapped AST expressions.
         ExpressionAst lookupAst = new ConstantExpressionAst(ast.Extent, value);
         ExpressionAst currentAst = usingVariable;
-        while (true)
-        {
-            if (currentAst.Parent is IndexExpressionAst indexAst)
-            {
+        while (true) {
+            if (currentAst.Parent is IndexExpressionAst indexAst) {
                 lookupAst = new IndexExpressionAst(
                     indexAst.Extent,
                     lookupAst,
@@ -275,8 +159,7 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
                     indexAst.NullConditional);
                 currentAst = indexAst;
             }
-            else if (currentAst.Parent is MemberExpressionAst memberAst)
-            {
+            else if (currentAst.Parent is MemberExpressionAst memberAst) {
                 lookupAst = new MemberExpressionAst(
                     memberAst.Extent,
                     lookupAst,
@@ -285,8 +168,7 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
                     memberAst.NullConditional);
                 currentAst = memberAst;
             }
-            else
-            {
+            else {
                 break;
             }
         }
@@ -314,41 +196,126 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
         return extractionScriptBlock.Invoke().FirstOrDefault();
     }
 
-    protected override void ProcessRecord()
-    {
-        foreach (PSObject? input in InputObject)
-        {
-            _inputPipe.Add(input);
+    protected override void ProcessRecord() {
+        foreach (PSObject? input in InputObject) {
+            if (input == null) { continue; }
+
+            Hosts.Add(new StringForgeConnectionInfoPSSession(input.ToString()!));
+            //_inputPipe.Add(input);
         }
 
         // See if there is any output already ready to write.
-        while (_outputPipe.TryTake(out (PipelineType, object?) currentOutput, 0, _cancelToken.Token))
-        {
+        while (_outputPipe.TryTake(out (PipelineType, object?) currentOutput, 0, _cancelToken.Token)) {
             WriteResult(currentOutput.Item1, currentOutput.Item2);
         }
     }
 
-    protected override void EndProcessing()
-    {
+    protected override void EndProcessing() {
+        string commandToRun;
+        if (ScriptBlock != null) {
+            commandToRun = ScriptBlock;
+        }
+        else {
+            string resolvedPath = SessionState.Path.GetUnresolvedProviderPathFromPSPath(
+                FilePath,
+                out ProviderInfo provider,
+                out PSDriveInfo _);
+
+            if (provider.ImplementingType != typeof(FileSystemProvider)) {
+                ErrorRecord err = new(
+                    new ArgumentException($"The resolved path '{resolvedPath}' is not a FileSystem path but {provider.Name}"),
+                    "FilePathNotFileSystem",
+                    ErrorCategory.InvalidArgument,
+                    FilePath);
+                ThrowTerminatingError(err);
+            }
+            else if (!File.Exists(resolvedPath)) {
+                ErrorRecord err = new(
+                    new FileNotFoundException($"Cannot find path '{resolvedPath}' because it does not exist", resolvedPath),
+                    "FilePathNotFound",
+                    ErrorCategory.ObjectNotFound,
+                    FilePath);
+                ThrowTerminatingError(err);
+            }
+
+            commandToRun = File.ReadAllText(resolvedPath);
+        }
+
+        PSObject?[] arguments = Array.Empty<PSObject?>();
+        OrderedDictionary? parameters = null;
+
+        if (ArgumentList != null) {
+            if (ArgumentList.Arguments != null) {
+                arguments = ArgumentList.Arguments;
+            }
+            else if (ArgumentList.Parameters != null) {
+                parameters = new();
+                foreach (DictionaryEntry kvp in ArgumentList.Parameters) {
+                    PSObject? value = null;
+                    if (kvp.Value is PSObject psObject) {
+                        value = psObject;
+                    }
+                    else if (kvp.Value != null) {
+                        value = PSObject.AsPSObject(kvp.Value);
+                    }
+
+                    parameters.Add(kvp.Key, value);
+                }
+            }
+        }
+
+        Hashtable usingParameters = GetUsingParameters(commandToRun);
+        if (usingParameters.Count > 0) {
+            parameters ??= new();
+            parameters["--%"] = usingParameters;
+        }
+
+        if(Hosts.Count > 0) {
+            ConnectionInfo = Hosts.ToArray();
+        }
+
+        Queue<(Runspace?, RunspaceConnectionInfo, string)> connectionQueue = new(ConnectionInfo.Length);
+        foreach (StringForgeConnectionInfoPSSession conn in ConnectionInfo) {
+            RunspaceConnectionInfo? connInfo = conn.GetConnectionInfo(this);
+            if (connInfo == null) {
+                continue;
+            }
+            connectionQueue.Enqueue((conn.PSSession?.Runspace, connInfo, conn.ToString()));
+        }
+
+        if (connectionQueue.Count == 0) {
+            _outputPipe.CompleteAdding();
+            return;
+        }
+
+        _worker = Task.Run(async () => {
+            try {
+                await RunWorker(
+                    connectionQueue,
+                    commandToRun,
+                    arguments: arguments,
+                    parameters: parameters);
+            }
+            finally {
+                _outputPipe.CompleteAdding();
+            }
+        });
+
         _inputPipe.Complete();
 
-        foreach ((PipelineType pipelineType, object? data) in _outputPipe.GetConsumingEnumerable(_cancelToken.Token))
-        {
+        foreach ((PipelineType pipelineType, object? data) in _outputPipe.GetConsumingEnumerable(_cancelToken.Token)) {
             WriteResult(pipelineType, data);
         }
         _worker?.Wait(-1, _cancelToken.Token);
     }
 
-    protected override void StopProcessing()
-    {
+    protected override void StopProcessing() {
         _cancelToken.Cancel();
         OnStopEvent?.Invoke(null, new());
     }
 
-    private void WriteResult(PipelineType pipelineType, object? data)
-    {
-        switch (pipelineType)
-        {
+    private void WriteResult(PipelineType pipelineType, object? data) {
+        switch (pipelineType) {
             case PipelineType.Output:
                 WriteObject(data);
                 break;
@@ -367,35 +334,27 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
         Queue<(Runspace?, RunspaceConnectionInfo, string)> connections,
         string script,
         PSObject?[] arguments,
-        IDictionary? parameters)
-    {
+        IDictionary? parameters) {
         List<Task> tasks = new(Math.Min(ThrottleLimit, connections.Count));
-        do
-        {
-            if (connections.Count == 0 || tasks.Count >= tasks.Capacity)
-            {
+        do {
+            if (connections.Count == 0 || tasks.Count >= tasks.Capacity) {
                 Task doneTask = await Task.WhenAny(tasks);
                 tasks.Remove(doneTask);
                 await doneTask;
             }
 
-            if (connections.TryDequeue(out (Runspace?, RunspaceConnectionInfo, string) info))
-            {
-                Task t = Task.Run(async () =>
-                {
-                    try
-                    {
+            if (connections.TryDequeue(out (Runspace?, RunspaceConnectionInfo, string) info)) {
+                Task t = Task.Run(async () => {
+                    try {
                         await RunScript(info.Item1, info.Item2, info.Item3, script, arguments, parameters);
                     }
-                    catch (Exception e)
-                    {
+                    catch (Exception e) {
                         string msg = $"Failed to run script on '{info.Item3}': {e.Message}";
                         ErrorRecord errorRecord = new(
                             e,
                             "ExecuteException",
                             ErrorCategory.NotSpecified,
-                            info.Item3)
-                        {
+                            info.Item3) {
                             ErrorDetails = new(msg),
                         };
                         _outputPipe.Add((PipelineType.Error, errorRecord));
@@ -413,11 +372,9 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
         string connId,
         string script,
         PSObject?[] arguments,
-        IDictionary? parameters)
-    {
+        IDictionary? parameters) {
         bool disposeRunspace = false;
-        if (runspace == null)
-        {
+        if (runspace == null) {
             disposeRunspace = true;
             runspace = await RunspaceHelper.CreateRunspaceAsync(
                 connInfo,
@@ -427,19 +384,16 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
                 applicationArguments: null);
         }
 
-        try
-        {
+        try {
             using PowerShell ps = PowerShell.Create(runspace);
 
             // Invoke-Command only forwards the output, error, and information
             // pipes. For now we ignore Verbose, Warning, Debug, and Progress.
             // This might be revisited in the future.
             using PSDataCollection<PSObject?> outputPipe = new();
-            outputPipe.DataAdded += (s, e) =>
-            {
+            outputPipe.DataAdded += (s, e) => {
                 PSObject? obj = outputPipe[e.Index];
-                if (obj != null)
-                {
+                if (obj != null) {
                     obj.Properties.Add(new PSNoteProperty("PSComputerName", connId));
                     obj.Properties.Add(new PSNoteProperty("RunspaceId", runspace.InstanceId));
                     obj.Properties.Add(new PSNoteProperty("PSShowComputerName", true));
@@ -448,8 +402,7 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
             };
 
             using PSDataCollection<ErrorRecord> errorPipe = new();
-            errorPipe.DataAdded += (s, e) =>
-            {
+            errorPipe.DataAdded += (s, e) => {
                 ErrorRecord errorRecord = errorPipe[e.Index];
 
                 // Unfortunately this isn't exposed publicly but it's very nice
@@ -467,12 +420,10 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
             ps.Streams.Error = errorPipe;
 
             using PSDataCollection<InformationRecord> infoPipe = new();
-            infoPipe.DataAdded += (s, e) =>
-            {
+            infoPipe.DataAdded += (s, e) => {
                 InformationRecord infoRecord = infoPipe[e.Index];
                 // Ensures the host value isn't written twice
-                if (infoRecord.Tags.Contains("PSHOST"))
-                {
+                if (infoRecord.Tags.Contains("PSHOST")) {
                     infoRecord.Tags.Add("FORWARDED");
                 }
 
@@ -481,15 +432,12 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
             ps.Streams.Information = infoPipe;
 
             ps.AddScript(script);
-            if (arguments != null)
-            {
-                foreach (PSObject? obj in arguments)
-                {
+            if (arguments != null) {
+                foreach (PSObject? obj in arguments) {
                     ps.AddArgument(obj);
                 }
             }
-            if (parameters != null)
-            {
+            if (parameters != null) {
                 ps.AddParameters(parameters);
             }
 
@@ -504,26 +452,21 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
             // that won't respond to the stop signal. This is a best effort.
             EventHandler stopDelegate = (s, e) => ps.BeginStop(null, null);
             OnStopEvent += stopDelegate;
-            try
-            {
+            try {
                 await ps.InvokeAsync(_inputPipe, outputPipe, psis, null, null);
             }
-            finally
-            {
+            finally {
                 OnStopEvent -= stopDelegate;
             }
         }
-        finally
-        {
-            if (disposeRunspace)
-            {
+        finally {
+            if (disposeRunspace) {
                 runspace.Dispose();
             }
         }
     }
 
-    public void Dispose()
-    {
+    public void Dispose() {
         _cancelToken?.Dispose();
         _inputPipe?.Dispose();
         _outputPipe?.Dispose();
@@ -531,51 +474,40 @@ public sealed class InvokeRemoteCommand : PSCmdlet, IDisposable
     }
 }
 
-public sealed class ArgumentsOrParametersTransformation : ArgumentTransformationAttribute
-{
+public sealed class ArgumentsOrParametersTransformation : ArgumentTransformationAttribute {
     public override object Transform(
         EngineIntrinsics engineIntrinsics,
-        object inputData)
-    {
-        if (inputData is IList inputArray)
-        {
+        object inputData) {
+        if (inputData is IList inputArray) {
             return new ArgumentsOrParameters(inputArray);
         }
-        else if (inputData is IDictionary inputDict)
-        {
+        else if (inputData is IDictionary inputDict) {
             return new ArgumentsOrParameters(inputDict);
         }
-        else
-        {
+        else {
             return new ArgumentsOrParameters(new[] { inputData });
         }
     }
 }
 
-public sealed class ArgumentsOrParameters
-{
+public sealed class ArgumentsOrParameters {
     internal PSObject?[]? Arguments { get; }
     internal IDictionary? Parameters { get; }
 
-    public ArgumentsOrParameters(IList arguments)
-    {
+    public ArgumentsOrParameters(IList arguments) {
         Arguments = new PSObject?[arguments.Count];
-        for (int i = 0; i < arguments.Count; i++)
-        {
+        for (int i = 0; i < arguments.Count; i++) {
             object? obj = arguments[i];
-            if (obj is PSObject psObj)
-            {
+            if (obj is PSObject psObj) {
                 Arguments[i] = psObj;
             }
-            else
-            {
+            else {
                 Arguments[i] = obj == null ? null : PSObject.AsPSObject(obj);
             }
         }
     }
 
-    public ArgumentsOrParameters(IDictionary parameters)
-    {
+    public ArgumentsOrParameters(IDictionary parameters) {
         Parameters = parameters;
     }
 }

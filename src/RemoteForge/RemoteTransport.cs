@@ -10,8 +10,7 @@ namespace RemoteForge;
 /// Base transport class. See ProcessTransport
 /// for a transport based on process stdio.
 /// </summary>
-public abstract class RemoteTransport : IDisposable
-{
+public abstract class RemoteTransport : IDisposable {
     /// <summary>
     /// Write the input provided to the transport target.
     /// </summary>
@@ -71,65 +70,51 @@ public abstract class RemoteTransport : IDisposable
     internal async Task Run(
         ChannelReader<string> reader,
         ChannelWriter<string> writer,
-        CancellationToken cancellationToken)
-    {
+        CancellationToken cancellationToken) {
         Task errorTask;
         Task outputTask;
         bool raisedError = false;
 
         await Open(cancellationToken);
-        try
-        {
-            errorTask = Task.Run(async () =>
-            {
+        try {
+            errorTask = Task.Run(async () => {
                 string? result;
-                try
-                {
+                try {
                     result = await ReadError(cancellationToken);
                 }
-                catch (Exception e)
-                {
+                catch (Exception e) {
                     writer.TryComplete(e);
                     return;
                 }
 
-                if (!string.IsNullOrWhiteSpace(result))
-                {
+                if (!string.IsNullOrWhiteSpace(result)) {
                     raisedError = true;
                     writer.TryComplete(new Exception(result));
                 }
             }, cancellationToken);
 
-            outputTask = Task.Run(async () =>
-            {
-                while (true)
-                {
+            outputTask = Task.Run(async () => {
+                while (true) {
                     string? result;
-                    try
-                    {
+                    try {
                         result = await ReadOutput(cancellationToken);
                     }
-                    catch (Exception e)
-                    {
+                    catch (Exception e) {
                         writer.TryComplete(e);
                         break;
                     }
 
-                    if (string.IsNullOrWhiteSpace(result))
-                    {
+                    if (string.IsNullOrWhiteSpace(result)) {
                         // Wait 200 milliseconds to see if the error task wrote
                         // an error and favour that instead of the generic one
                         // here.
-                        try
-                        {
+                        try {
                             await errorTask.WaitAsync(new TimeSpan(200 * TimeSpan.TicksPerMillisecond),
                                 cancellationToken);
                         }
-                        catch (TimeoutException)
-                        { }
+                        catch (TimeoutException) { }
 
-                        if (!(errorTask.IsCompleted && raisedError))
-                        {
+                        if (!(errorTask.IsCompleted && raisedError)) {
                             writer.TryComplete(new Exception(
                                 "Transport has returned no data before it has been closed"));
                         }
@@ -141,40 +126,33 @@ public abstract class RemoteTransport : IDisposable
                 }
             }, cancellationToken);
 
-            while (true)
-            {
+            while (true) {
                 string msg;
-                try
-                {
+                try {
                     msg = await reader.ReadAsync(cancellationToken);
                 }
-                catch (ChannelClosedException)
-                {
+                catch (ChannelClosedException) {
                     break;
                 }
 
                 await WriteInput(msg, cancellationToken);
             }
         }
-        catch
-        {
+        catch {
             raisedError = true;
             throw;
         }
-        finally
-        {
+        finally {
             await Close(cancellationToken);
         }
 
         await Task.WhenAll(outputTask, errorTask);
     }
 
-    public void Dispose()
-    {
+    public void Dispose() {
         Dispose(true);
         GC.SuppressFinalize(this);
     }
 
-    protected virtual void Dispose(bool isDisposing)
-    { }
+    protected virtual void Dispose(bool isDisposing) { }
 }

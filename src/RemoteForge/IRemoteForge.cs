@@ -9,8 +9,7 @@ namespace RemoteForge;
 /// connection and provide a common mechanism to generate the transport object
 /// based on the connection properties.
 /// </summary>
-public interface IRemoteForge
-{
+public interface IRemoteForge {
     /// <summary>
     /// The Forge identifier used with Register-RemoteForge. This should be
     /// unique as it's used by the Uri scheme to determine what transport to

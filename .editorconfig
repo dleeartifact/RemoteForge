@@ -1,0 +1,5 @@
+# .editorconfig for C# brace style (K&R/1TBS)
+root = true
+
+[*.cs]
+csharp_new_line_before_open_brace = none

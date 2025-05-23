@@ -6,22 +6,17 @@ using System.Threading.Tasks;
 
 namespace RemoteForge;
 
-public class ProcessTransport : RemoteTransport
-{
+public class ProcessTransport : RemoteTransport {
     protected Process Proc { get; }
 
-    public ProcessTransport(string executable, IEnumerable<string> arguments) : this(executable, arguments, null)
-    { }
+    public ProcessTransport(string executable, IEnumerable<string> arguments) : this(executable, arguments, null) { }
 
     public ProcessTransport(
         string executable,
         IEnumerable<string>? arguments,
-        Dictionary<string, string>? environment)
-    {
-        Proc = new()
-        {
-            StartInfo = new()
-            {
+        Dictionary<string, string>? environment) {
+        Proc = new() {
+            StartInfo = new() {
                 FileName = executable,
                 RedirectStandardError = true,
                 RedirectStandardInput = true,
@@ -31,30 +26,24 @@ public class ProcessTransport : RemoteTransport
                 UseShellExecute = false,
             },
         };
-        if (arguments != null)
-        {
-            foreach (string arg in arguments)
-            {
+        if (arguments != null) {
+            foreach (string arg in arguments) {
                 Proc.StartInfo.ArgumentList.Add(arg);
             }
         }
-        if (environment != null)
-        {
-            foreach (KeyValuePair<string, string> kvp in environment)
-            {
+        if (environment != null) {
+            foreach (KeyValuePair<string, string> kvp in environment) {
                 Proc.StartInfo.Environment.Add(kvp.Key, kvp.Value);
             }
         }
     }
 
-    protected override Task Open(CancellationToken cancellationToken)
-    {
+    protected override Task Open(CancellationToken cancellationToken) {
         Proc.Start();
         return Task.CompletedTask;
     }
 
-    protected override async Task Close(CancellationToken cancellationToken)
-    {
+    protected override async Task Close(CancellationToken cancellationToken) {
         Proc.Kill();
         await Proc.WaitForExitAsync(cancellationToken);
     }
@@ -68,10 +57,8 @@ public class ProcessTransport : RemoteTransport
     protected override async Task<string?> ReadError(CancellationToken cancellationToken)
         => await Proc.StandardError.ReadToEndAsync(cancellationToken);
 
-    protected override void Dispose(bool isDisposing)
-    {
-        if (isDisposing)
-        {
+    protected override void Dispose(bool isDisposing) {
+        if (isDisposing) {
             Proc?.Dispose();
         }
         base.Dispose(isDisposing);

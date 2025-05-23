@@ -11,24 +11,21 @@ namespace RemoteForge;
 
 public delegate RunspaceConnectionInfo RemoteForgeFactory(string info);
 
-internal class RunspaceSpecificStorage<T>
-{
+internal class RunspaceSpecificStorage<T> {
     private readonly ConditionalWeakTable<Runspace, Lazy<T>> _map = new();
 
     private readonly Func<T> _factory;
 
     private readonly LazyThreadSafetyMode _mode = LazyThreadSafetyMode.ExecutionAndPublication;
 
-    public RunspaceSpecificStorage(Func<T> factory)
-    {
+    public RunspaceSpecificStorage(Func<T> factory) {
         _factory = factory;
     }
 
     public T GetFromTLS()
         => GetForRunspace(Runspace.DefaultRunspace);
 
-    public T GetForRunspace(Runspace runspace)
-    {
+    public T GetForRunspace(Runspace runspace) {
         return _map.GetValue(
             runspace,
             _ => new Lazy<T>(() => _factory(), _mode))
@@ -36,8 +33,7 @@ internal class RunspaceSpecificStorage<T>
     }
 }
 
-internal sealed class RegistrationStorage
-{
+internal sealed class RegistrationStorage {
     private static RunspaceSpecificStorage<RegistrationStorage> _registrations = new(() => new());
 
     public List<RemoteForgeRegistration> Registrations = new();
@@ -46,8 +42,7 @@ internal sealed class RegistrationStorage
 }
 
 
-public sealed class RemoteForgeRegistration
-{
+public sealed class RemoteForgeRegistration {
     public string Name { get; }
     public string? Description { get; }
     internal RemoteForgeFactory CreateFactory { get; }
@@ -55,21 +50,17 @@ public sealed class RemoteForgeRegistration
     internal RemoteForgeRegistration(
         string name,
         string? description,
-        RemoteForgeFactory createFactory)
-    {
+        RemoteForgeFactory createFactory) {
         Name = name;
         Description = description;
         CreateFactory = createFactory;
     }
 
-    public static RemoteForgeRegistration[] Register(Assembly assembly, bool force = false)
-    {
+    public static RemoteForgeRegistration[] Register(Assembly assembly, bool force = false) {
         List<RemoteForgeRegistration> registrations = new();
 
-        foreach (Type t in assembly.GetTypes())
-        {
-            if (t.GetInterface(nameof(IRemoteForge)) == null)
-            {
+        foreach (Type t in assembly.GetTypes()) {
+            if (t.GetInterface(nameof(IRemoteForge)) == null) {
                 continue;
             }
 
@@ -105,20 +96,15 @@ public sealed class RemoteForgeRegistration
         RemoteForgeFactory factory,
         bool doNotCheckExistingMethod,
         string? description = null,
-        bool force = false)
-    {
-        if (TryGetForgeRegistration(name, out RemoteForgeRegistration? forge))
-        {
-            if (!doNotCheckExistingMethod && forge.CreateFactory.Method == factory.Method)
-            {
+        bool force = false) {
+        if (TryGetForgeRegistration(name, out RemoteForgeRegistration? forge)) {
+            if (!doNotCheckExistingMethod && forge.CreateFactory.Method == factory.Method) {
                 return forge;
             }
-            else if (force)
-            {
+            else if (force) {
                 RegistrationStorage.GetFromTLS().Registrations.Remove(forge);
             }
-            else
-            {
+            else {
                 throw new ArgumentException($"A forge with the name '{name}' has already been registered");
             }
         }
@@ -129,26 +115,20 @@ public sealed class RemoteForgeRegistration
         return registration;
     }
 
-    public static void Unregister(string name)
-    {
-        if (TryGetForgeRegistration(name, out RemoteForgeRegistration? forge))
-        {
+    public static void Unregister(string name) {
+        if (TryGetForgeRegistration(name, out RemoteForgeRegistration? forge)) {
             RegistrationStorage.GetFromTLS().Registrations.Remove(forge);
         }
-        else
-        {
+        else {
             throw new ArgumentException($"No forge has been registered with the name '{name}'");
         }
     }
 
-    public static RunspaceConnectionInfo CreateForgeConnectionInfo(string info)
-    {
+    public static RunspaceConnectionInfo CreateForgeConnectionInfo(string info) {
         string? scheme = null;
         int schemeSplit = info.IndexOf(':');
-        if (schemeSplit == -1)
-        {
-            if (Runspace.DefaultRunspace != null)
-            {
+        if (schemeSplit == -1) {
+            if (Runspace.DefaultRunspace != null) {
                 // We can't access it through
                 // Runspace.DefaultRunspace.SessionStateProxy as it might be
                 // busy running this very command.
@@ -156,20 +136,17 @@ public sealed class RemoteForgeRegistration
                     ScriptBlock.Create("$PSRemoteForgeDefault").Invoke());
             }
 
-            if (string.IsNullOrWhiteSpace(scheme))
-            {
+            if (string.IsNullOrWhiteSpace(scheme)) {
                 scheme = "ssh";
             }
         }
-        else
-        {
+        else {
             string[] infoSplit = info.Split(':', 2);
             scheme = infoSplit[0];
             info = infoSplit[1];
         }
 
-        if (TryGetForgeRegistration(scheme, out RemoteForgeRegistration? forge))
-        {
+        if (TryGetForgeRegistration(scheme, out RemoteForgeRegistration? forge)) {
             return forge.CreateFactory(info);
         }
 
@@ -178,13 +155,10 @@ public sealed class RemoteForgeRegistration
 
     private static bool TryGetForgeRegistration(
         string name,
-        [NotNullWhen(true)] out RemoteForgeRegistration? registration)
-    {
+        [NotNullWhen(true)] out RemoteForgeRegistration? registration) {
         string lowerId = name.ToLowerInvariant();
-        foreach (RemoteForgeRegistration forge in RegistrationStorage.GetFromTLS().Registrations)
-        {
-            if (forge.Name.ToLowerInvariant() == lowerId)
-            {
+        foreach (RemoteForgeRegistration forge in RegistrationStorage.GetFromTLS().Registrations) {
+            if (forge.Name.ToLowerInvariant() == lowerId) {
                 registration = forge;
                 return true;
             }

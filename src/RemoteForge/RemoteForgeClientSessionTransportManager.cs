@@ -11,8 +11,7 @@ using System.Threading.Tasks;
 
 namespace RemoteForge;
 
-internal sealed class RemoteForgeClientSessionTransportManager : ClientSessionTransportManagerBase
-{
+internal sealed class RemoteForgeClientSessionTransportManager : ClientSessionTransportManagerBase {
     private readonly CancellationTokenSource _cancelSource = new();
     private readonly IRemoteForge _transportFactory;
     private readonly Channel<string> _inboundChannel = Channel.CreateUnbounded<string>();
@@ -20,24 +19,20 @@ internal sealed class RemoteForgeClientSessionTransportManager : ClientSessionTr
     private bool _hasRead;
     private Task? _transportWorker;
 
-    private class MessageWriter : TextWriter
-    {
+    private class MessageWriter : TextWriter {
         private readonly ChannelWriter<string> _writer;
 
         [ExcludeFromCodeCoverage]
         public override Encoding Encoding => Encoding.UTF8;
 
-        public MessageWriter(ChannelWriter<string> writer)
-        {
+        public MessageWriter(ChannelWriter<string> writer) {
             _writer = writer;
         }
 
-        public override void WriteLine(string? value)
-        {
+        public override void WriteLine(string? value) {
             // If TryWrite returned false on an unbounded channel then it has
             // been marked as completed.
-            if (!_writer.TryWrite(value ?? string.Empty))
-            {
+            if (!_writer.TryWrite(value ?? string.Empty)) {
                 // It is important this exception is an IOException. The
                 // PowerShell code treats this exception on a failure to
                 // signal the transport has been closed.
@@ -50,8 +45,7 @@ internal sealed class RemoteForgeClientSessionTransportManager : ClientSessionTr
         IRemoteForge transportFactory,
         Guid runspaceId,
         PSRemotingCryptoHelper cryptoHelper
-    ) : base(runspaceId, cryptoHelper)
-    {
+    ) : base(runspaceId, cryptoHelper) {
         _transportFactory = transportFactory;
     }
 
@@ -62,24 +56,18 @@ internal sealed class RemoteForgeClientSessionTransportManager : ClientSessionTr
     /// This is called when Runspace.OpenAsync() is called and will block
     /// that call until it returns.
     /// </remarks>
-    public override void CreateAsync()
-    {
+    public override void CreateAsync() {
         SetMessageWriter(new MessageWriter(_outboundChannel.Writer));
         SendOneItem();
 
-        Task _ = Task.Run(async () =>
-        {
-            while (true)
-            {
+        Task _ = Task.Run(async () => {
+            while (true) {
                 string msg;
-                try
-                {
+                try {
                     msg = await _inboundChannel.Reader.ReadAsync(_cancelSource.Token);
                 }
-                catch (ChannelClosedException e)
-                {
-                    if (e.InnerException != null)
-                    {
+                catch (ChannelClosedException e) {
+                    if (e.InnerException != null) {
                         ThrowTransportException(e.InnerException);
                     }
                     break;
@@ -90,42 +78,34 @@ internal sealed class RemoteForgeClientSessionTransportManager : ClientSessionTr
             }
         });
 
-        _transportWorker = Task.Run(async () =>
-        {
+        _transportWorker = Task.Run(async () => {
             using RemoteTransport transport = _transportFactory.CreateTransport();
-            try
-            {
+            try {
                 await transport.Run(
                     _outboundChannel.Reader,
                     _inboundChannel.Writer,
                     _cancelSource.Token);
             }
-            catch (OperationCanceledException)
-            {
+            catch (OperationCanceledException) {
                 return;
             }
-            catch (Exception e)
-            {
-                if (_outboundChannel.Writer.TryComplete())
-                {
+            catch (Exception e) {
+                if (_outboundChannel.Writer.TryComplete()) {
                     ThrowTransportException(e);
                 }
-                else
-                {
+                else {
                     // The writer has been closed and we want to propagate the
                     // exception to the caller.
                     throw;
                 }
             }
-            finally
-            {
+            finally {
                 _inboundChannel.Writer.TryComplete();
             }
         });
     }
 
-    private void ThrowTransportException(Exception e)
-    {
+    private void ThrowTransportException(Exception e) {
         PSRemotingTransportException transportExc = e is PSRemotingTransportException te
             ? te
             : new(e.Message, e);
@@ -159,12 +139,10 @@ internal sealed class RemoteForgeClientSessionTransportManager : ClientSessionTr
     /// We use this as an opportunity to cancel our worker in case it hasn't
     /// successfully read any data yet.
     /// </remarks>
-    public override void CloseAsync()
-    {
+    public override void CloseAsync() {
         // We need to check if this is due to an abnormal close to stop our
         // worker.
-        if (!_hasRead)
-        {
+        if (!_hasRead) {
             _cancelSource.Cancel();
             _outboundChannel.Writer.TryComplete();
         }
@@ -180,25 +158,20 @@ internal sealed class RemoteForgeClientSessionTransportManager : ClientSessionTr
     /// Called when the Runspace is disposed, we use this as an opportunity to
     /// dispose the underlying transport if it is an IDisposable type.
     /// </remarks>
-    protected override void Dispose(bool isDisposing)
-    {
-        if (isDisposing)
-        {
+    protected override void Dispose(bool isDisposing) {
+        if (isDisposing) {
             // If the close task hasn't been signaled then we've reached
             // dispose with a broken runspace. We want to ensure the worker has
             // been cancelled.
-            if (!_outboundChannel.Reader.Completion.IsCompleted)
-            {
+            if (!_outboundChannel.Reader.Completion.IsCompleted) {
                 _cancelSource.Cancel();
                 _outboundChannel.Writer.TryComplete();
             }
 
-            try
-            {
+            try {
                 _transportWorker?.Wait();
             }
-            catch (AggregateException e) when (e.InnerException != null)
-            {
+            catch (AggregateException e) when (e.InnerException != null) {
                 throw e.InnerException;
             }
 

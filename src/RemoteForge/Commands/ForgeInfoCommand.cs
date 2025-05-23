@@ -12,8 +12,7 @@ namespace RemoteForge.Commands;
 
 [Cmdlet(VerbsCommon.New, "SSHForgeInfo")]
 [OutputType(typeof(SSHConnectionInfo))]
-public sealed class NewSSHForgeInfoCommand : PSCmdlet
-{
+public sealed class NewSSHForgeInfoCommand : PSCmdlet {
     [Parameter(
         Mandatory = true,
         Position = 0
@@ -38,8 +37,7 @@ public sealed class NewSSHForgeInfoCommand : PSCmdlet
     [Parameter]
     public Hashtable? Options { get; set; }
 
-    protected override void EndProcessing()
-    {
+    protected override void EndProcessing() {
         (string hostname, int port, string? userName) = ParseSSHInfo(HostName);
         string? keyFilePath = ResolveKeyFilePath();
 
@@ -55,10 +53,8 @@ public sealed class NewSSHForgeInfoCommand : PSCmdlet
         WriteObject(connInfo);
     }
 
-    private string? ResolveKeyFilePath()
-    {
-        if (string.IsNullOrWhiteSpace(KeyFilePath))
-        {
+    private string? ResolveKeyFilePath() {
+        if (string.IsNullOrWhiteSpace(KeyFilePath)) {
             return null;
         }
         string resolvedPath = SessionState.Path.GetUnresolvedProviderPathFromPSPath(
@@ -66,8 +62,7 @@ public sealed class NewSSHForgeInfoCommand : PSCmdlet
             out ProviderInfo provider,
             out PSDriveInfo _);
 
-        if (provider.ImplementingType != typeof(FileSystemProvider))
-        {
+        if (provider.ImplementingType != typeof(FileSystemProvider)) {
             ErrorRecord err = new(
                 new ArgumentException($"The resolved KeyFilePath '{resolvedPath}' is not a FileSystem path but {provider.Name}"),
                 "KeyFilePathNotFileSystem",
@@ -76,8 +71,7 @@ public sealed class NewSSHForgeInfoCommand : PSCmdlet
             WriteError(err);
             return null;
         }
-        else if (!File.Exists(resolvedPath))
-        {
+        else if (!File.Exists(resolvedPath)) {
             ErrorRecord err = new(
                 new FileNotFoundException($"Cannot find KeyFilePath '{resolvedPath}' because it does not exist", resolvedPath),
                 "KeyFilePathNotFound",
@@ -90,8 +84,7 @@ public sealed class NewSSHForgeInfoCommand : PSCmdlet
         return resolvedPath;
     }
 
-    internal static (string, int, string?) ParseSSHInfo(string info)
-    {
+    internal static (string, int, string?) ParseSSHInfo(string info) {
         // Split out the username portion first to allow UPNs that contain
         // @ as well before the last @ that separates the user from the
         // hostname. This is done because the Uri class will not work if the
@@ -100,12 +93,10 @@ public sealed class NewSSHForgeInfoCommand : PSCmdlet
         string hostname;
         int userSplitIdx = info.LastIndexOf('@');
         int hostNameOffset = 0;
-        if (userSplitIdx == -1)
-        {
+        if (userSplitIdx == -1) {
             hostname = info;
         }
-        else
-        {
+        else {
             hostNameOffset = userSplitIdx + 1;
             userName = info.Substring(0, userSplitIdx);
             hostname = info.Substring(userSplitIdx + 1);
@@ -117,15 +108,13 @@ public sealed class NewSSHForgeInfoCommand : PSCmdlet
         Uri sshUri = new($"ssh://{hostname}");
 
         int port = sshUri.Port == -1 ? 22 : sshUri.Port;
-        if (sshUri.HostNameType == UriHostNameType.IPv6)
-        {
+        if (sshUri.HostNameType == UriHostNameType.IPv6) {
             // IPv6 is enclosed with [] and is canonicalised so we need to just
             // extract the value enclosed by [] from the original string for
             // the hostname.
             hostname = info[(1 + hostNameOffset)..info.IndexOf(']')];
         }
-        else
-        {
+        else {
             // As the hostname is lower cased we need to extract the original
             // string value.
             int originalHostIndex = sshUri.OriginalString.IndexOf(
@@ -145,8 +134,7 @@ public sealed class NewSSHForgeInfoCommand : PSCmdlet
     "WSManForgeInfo",
     DefaultParameterSetName = "ComputerName")]
 [OutputType(typeof(WSManConnectionInfo))]
-public sealed class NewWSManForgeInfoCommand : PSCmdlet
-{
+public sealed class NewWSManForgeInfoCommand : PSCmdlet {
     [Parameter(
         Mandatory = true,
         ParameterSetName = "ConnectionUri"
@@ -186,10 +174,8 @@ public sealed class NewWSManForgeInfoCommand : PSCmdlet
     [Parameter]
     public string? CertificateThumbprint { get; set; }
 
-    protected override void EndProcessing()
-    {
-        if (ConnectionUri == null)
-        {
+    protected override void EndProcessing() {
+        if (ConnectionUri == null) {
             string scheme = UseSSL
                 ? "https"
                 : "http";
@@ -202,8 +188,7 @@ public sealed class NewWSManForgeInfoCommand : PSCmdlet
 
         string shellUri = $"http://schemas.microsoft.com/powershell/{ConfigurationName}";
         PSSessionOption so = SessionOption ?? new();
-        WSManConnectionInfo connInfo = new(ConnectionUri, shellUri, Credential)
-        {
+        WSManConnectionInfo connInfo = new(ConnectionUri, shellUri, Credential) {
             AuthenticationMechanism = Authentication,
             CancelTimeout = (int)so.CancelTimeout.TotalMilliseconds,
             Credential = Credential,
@@ -229,16 +214,13 @@ public sealed class NewWSManForgeInfoCommand : PSCmdlet
 
         // The following options require the defaults to be preserved
         // if not explicitly set.
-        if (!string.IsNullOrWhiteSpace(CertificateThumbprint))
-        {
+        if (!string.IsNullOrWhiteSpace(CertificateThumbprint)) {
             connInfo.CertificateThumbprint = CertificateThumbprint;
         }
-        if (SessionOption != null)
-        {
+        if (SessionOption != null) {
             connInfo.ProxyAuthentication = SessionOption.ProxyAuthentication;
         }
-        if (so.ProxyAccessType != ProxyAccessType.None)
-        {
+        if (so.ProxyAccessType != ProxyAccessType.None) {
             connInfo.ProxyCredential = so.ProxyCredential;
         }
         WriteObject(connInfo);

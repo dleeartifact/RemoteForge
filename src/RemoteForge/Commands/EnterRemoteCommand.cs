@@ -14,8 +14,7 @@ namespace RemoteForge.Commands;
     "Remote"
 )]
 [ExcludeFromCodeCoverage(Justification = "Cannot test this in CI, requires interaction")]
-public sealed class EnterRemoteCommand : PSCmdlet, IDisposable
-{
+public sealed class EnterRemoteCommand : PSCmdlet, IDisposable {
     private readonly CancellationTokenSource _cancelSource = new();
 
     [Parameter(
@@ -28,12 +27,10 @@ public sealed class EnterRemoteCommand : PSCmdlet, IDisposable
     [Parameter]
     public PSPrimitiveDictionary? ApplicationArguments { get; set; }
 
-    protected override void EndProcessing()
-    {
+    protected override void EndProcessing() {
         Debug.Assert(ConnectionInfo != null);
 
-        if (!(Host is IHostSupportsInteractiveSession host))
-        {
+        if (!(Host is IHostSupportsInteractiveSession host)) {
             ErrorRecord err = new(
                 new ArgumentException("The host is not interactive and does not support Enter-Remote."),
                 "HostDoesNotSupportPushRUnspace",
@@ -45,13 +42,10 @@ public sealed class EnterRemoteCommand : PSCmdlet, IDisposable
 
         Runspace? runspace = ConnectionInfo.PSSession?.Runspace;
         bool disposeRunspace = false;
-        try
-        {
-            if (runspace == null)
-            {
+        try {
+            if (runspace == null) {
                 RunspaceConnectionInfo? connInfo = ConnectionInfo.GetConnectionInfo(this);
-                if (connInfo == null)
-                {
+                if (connInfo == null) {
                     return;
                 }
 
@@ -73,8 +67,7 @@ public sealed class EnterRemoteCommand : PSCmdlet, IDisposable
                 shouldCloseProp.SetValue(runspace, true);
             }
 
-            if (runspace.RunspaceStateInfo.State != RunspaceState.Opened)
-            {
+            if (runspace.RunspaceStateInfo.State != RunspaceState.Opened) {
                 string msg = $"Runspace was in the '{runspace.RunspaceStateInfo.State}' state but must be Opened to enter";
                 ErrorRecord err = new(
                     new InvalidOperationException(msg),
@@ -84,8 +77,7 @@ public sealed class EnterRemoteCommand : PSCmdlet, IDisposable
                 ThrowTerminatingError(err);
             }
 
-            if (runspace.RunspaceAvailability != RunspaceAvailability.Available)
-            {
+            if (runspace.RunspaceAvailability != RunspaceAvailability.Available) {
                 string msg = $"Runspace availability was '{runspace.RunspaceAvailability}' but must be Available to enter";
                 ErrorRecord err = new(
                     new InvalidOperationException(msg),
@@ -100,30 +92,25 @@ public sealed class EnterRemoteCommand : PSCmdlet, IDisposable
             if (!(
                 runspace.ConnectionInfo is SSHConnectionInfo ||
                 runspace.ConnectionInfo is WSManConnectionInfo
-            ))
-            {
+            )) {
                 runspace.ConnectionInfo.ComputerName = ConnectionInfo.ToString();
             }
 
             host.PushRunspace(runspace);
         }
-        catch
-        {
-            if (runspace != null && disposeRunspace)
-            {
+        catch {
+            if (runspace != null && disposeRunspace) {
                 runspace.Dispose();
             }
             throw;
         }
     }
 
-    protected override void StopProcessing()
-    {
+    protected override void StopProcessing() {
         _cancelSource?.Cancel();
     }
 
-    public void Dispose()
-    {
+    public void Dispose() {
         _cancelSource?.Dispose();
     }
 }
